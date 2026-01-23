@@ -1,2 +1,0 @@
-# clickclickbot
-LLM telegram bot
