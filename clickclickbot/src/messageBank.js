@@ -3,3 +3,5 @@ export const usageGuide =
 
 export const llmProcessStart = 
 `Thinking`
+
+export const botShareLink = "AI chat bot https://t.me/aziz_clickclick_bot"

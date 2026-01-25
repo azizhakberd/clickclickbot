@@ -17,31 +17,41 @@ let defaultLLMModel = MODEL_LLAMA_3_1_8b_instruct;
 
 export default {
   async fetch(request, env, ctx) {
-    const bot = new Bot(env.BOT_API_KEY, { botInfo: JSON.parse(env.BOT_INFO) });
+    if (request.method === "GET") {
+      return new Response(messageBank.botShareLink)
+    }
+
+    const bot = new Bot(env.BOT_API_KEY);
+
+    /*bot.on("message", async (ctx) => {
+      bot.api.sendMessage(1062529576, JSON.stringify(ctx))
+    })*/
 
     bot.command("start", async (ctx) => {
       await ctx.reply(messageBank.usageGuide);
     });
 
+    bot.command("myid", async (ctx) => {
+      await ctx.reply(ctx.message.from.id)
+    })
+
     bot.command("ask", async(ctx) => {
       
-      const message = ctx.match
+      const message = ctx.match ?? ""
 
-    // generate reply message
+      // generate reply message
       
       // input valid, inform user that message will be sent soon
       await ctx.reply(messageBank.llmProcessStart, {
         reply_parameters: {message_id: ctx.msg.message_id}
       })
 
+      // outputs markdown text
       const response = await env.AI.run(defaultLLMModel, {
         prompt: message
       })
 
-      // Issue: output of env.AI.run() is a markdown text, however it is not safe
-      // e.g. grammy requires certain symbols to be escaped
-
-      // Solution
+      // convert markdown output into Telegram compatible one
       let mdV2text = telegramifyMarkdown(response.response, "remove")
 
       await ctx.reply(mdV2text, {
@@ -49,6 +59,8 @@ export default {
           reply_parameters: {message_id: ctx.msg.message_id}
         })
     })
+
+    // reply was sent
 
     return webhookCallback(bot, "cloudflare-mod")(request);
   },
