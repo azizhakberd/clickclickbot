@@ -22,7 +22,7 @@ export class GroupModel {
 
 
     static from(group) {
-        let obj = new GroupModel(group.ID, 0, group.systemBehavior, group.lastMessageTime.toString())
+        let obj = new GroupModel(group.ID, 0, group.systemBehavior, group.lastMessageTime.toString(), group.associatedChannelID)
         obj.setFlag(0, 6, group.numberOfFlags)
         obj.setFlag(6, 7, group.isEnabled)
         obj.setFlag(7, 8, group.hasLeft)
@@ -33,6 +33,9 @@ export class GroupModel {
         return obj
     }
 
+    // It is a multi purpose function that can perform both UPDATE and INSERT
+    // it will know when to use INSERT by checking the database for presence of the desired entry
+    // skipping the check will cause it to run UPDATE statement regardless
     static async store(group, env, skipCheck) {
         if (group instanceof Group) {
             group = GroupModel.from(group)
@@ -40,7 +43,7 @@ export class GroupModel {
         
         // we might be confident the group was already in database
         if (!skipCheck) {
-            let test = await Group.getGroupByID(group.ID)
+            let test = await Group.getGroupByID(group.ID, env)
 
             if (test == null) {
                 const ret = await env.DB.prepare("INSERT INTO Groups (ID, Flags, SystemBehavior, LastMessageTime, AssociatedChannelID) VALUES (?, ?, ?, ?, ?)")
@@ -75,7 +78,7 @@ export class Group {
         const stmt = env.DB.prepare("SELECT * FROM Groups WHERE ID = ?").bind(ID)
         const ret = await stmt.run()
 
-        if (!ret.results) return null;
+        if (ret.results == null || !ret.results.length) return null;
 
         let model = GroupModel.fromQueryResult(ret.results[0]);
         let group = new Group(model);

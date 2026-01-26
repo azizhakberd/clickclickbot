@@ -2,8 +2,8 @@ DROP TABLE IF EXISTS Groups;
 CREATE TABLE IF NOT EXISTS Groups(
     ID INTEGER PRIMARY KEY,
     Flags INTEGER, /*Full description of flags at the end*/
-    SystemBehavior TEXT
-    LastMessageTime INTEGER /*Temporal timestamp in milliseconds from Jan 1 1970 UTC*/
+    SystemBehavior TEXT,
+    LastMessageTime INTEGER, /*Temporal timestamp in milliseconds from Jan 1 1970 UTC*/
     AssociatedChannelID INTEGER
 )
 

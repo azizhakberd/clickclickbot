@@ -1,4 +1,4 @@
-import { Bot, Context, webhookCallback } from "grammy";
+import { Bot, Context, GrammyError, webhookCallback } from "grammy";
 const telegramifyMarkdown = require("telegramify-markdown")
 import * as messageBank from "./messageBank";
 import { Group, GroupModel } from "./db";
@@ -50,20 +50,39 @@ export default {
             // reply was sent
         })
 
+
+        // For development purposes: flush all unserved API messages
+        bot.on("message", async (ctx) => {
+            await bot.api.sendMessage(env.BOT_OWNER_ID, JSON.stringify(ctx))
+        })
+
         bot.on(":new_chat_members:me", async (ctx) => {
             // bot is added to a group
+            await bot.api.sendMessage(env.BOT_OWNER_ID, JSON.stringify(ctx))
 
             // check if bot has already been in the group
-            if (chat.type != "group" && chat.type != "supergroup") return
+            if (ctx.chat.type != "group" && ctx.chat.type != "supergroup") return;
 
-            let group = await Group.getGroupByID(ctx.chat.id);
+            let group = await Group.getGroupByID(ctx.chat.id, env);
 
             if (group != null) {
                 // if yes - update the properties and finish
                 group.isEnabled = true;
                 group.lastMessageTime = new Date().getTime();
-                setGroupDefaultFlags(group)
-                let details = await ctx.api.getChat(group.ID)
+
+                let details;
+                try {
+                    details = await ctx.api.getChat(group.ID)
+                } catch (err) {
+                    if (err instanceof GrammyError) {
+                        if (err.error_code == 403) { // bot was kicked from chat
+                            group.hasLeft = 1;
+                            let result = await GroupModel.store(group, env, true);
+                            bot.api.sendMessage(group.ID, result.toString())
+                            return;
+                        }
+                    }
+                }
                 if (details.linked_chat_id) {
                     group.isAssociatedWithChannel = 1;
                     group.associatedChannelID = details.linked_chat_id;
@@ -71,7 +90,8 @@ export default {
                     group.isAssociatedWithChannel = 0;
                     group.associatedChannelID = 0;
                 }
-                GroupModel.store(group, env, true);
+                let result = await GroupModel.store(group, env, true);
+                bot.api.sendMessage(group.ID, result.toString())
                 return;
             }
 
@@ -80,8 +100,20 @@ export default {
             group = Group.create();
             group.ID = ctx.chat.id;
             group.lastMessageTime = new Date().getTime();
-            let details = await ctx.api.getChat(group.ID)
             setGroupDefaultFlags(group)
+
+            let details;
+            try {
+                details = await ctx.api.getChat(group.ID)
+            } catch (err) {
+                if (err instanceof GrammyError) {
+                    if (err.error_code == 403) { // bot was kicked from chat
+                        group.hasLeft = 1;
+                        let result = await GroupModel.store(group, env);
+                        bot.api.sendMessage(group.ID, result.toString());
+                    }
+                }
+            }
             if (details.linked_chat_id) {
                 group.isAssociatedWithChannel = 1;
                 group.associatedChannelID = details.linked_chat_id;
@@ -89,15 +121,18 @@ export default {
                 group.isAssociatedWithChannel = 0;
                 group.associatedChannelID = 0;
             }
-            GroupModel.store(group, env);
+            let result = await GroupModel.store(group, env);
+            bot.api.sendMessage(group.ID, result.toString());
         })
 
         bot.on(":left_chat_member:me", async (ctx) => {
+            await bot.api.sendMessage(env.BOT_OWNER_ID, JSON.stringify(ctx))
             // flip the flag, do not delete the entry
-            let group = await Group.getGroupByID(ctx.chat.id);
+            let group = await Group.getGroupByID(ctx.chat.id, env);
             if (group == null) return;
             group.hasLeft = true;
-            GroupModel.store(group, env);
+            let result = await GroupModel.store(group, env, true);
+            await bot.api.sendMessage(env.BOT_OWNER_ID, result.toString())
         })
 
         return webhookCallback(bot, "cloudflare-mod")(request);
