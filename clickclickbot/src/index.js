@@ -1,67 +1,114 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
-
 import { Bot, Context, webhookCallback } from "grammy";
 const telegramifyMarkdown = require("telegramify-markdown")
 import * as messageBank from "./messageBank";
+import { Group, GroupModel } from "./db";
 
 const MODEL_LLAMA_3_1_8b_instruct = "@cf/meta/llama-3.1-8b-instruct"
 let defaultLLMModel = MODEL_LLAMA_3_1_8b_instruct;
 
 export default {
-  async fetch(request, env, ctx) {
-    if (request.method === "GET") {
-      return new Response(messageBank.botShareLink)
-    }
+    async fetch(request, env, ctx) {
+        if (request.method === "GET") {
+            return new Response(messageBank.botShareLink)
+        }
 
-    const bot = new Bot(env.BOT_API_KEY);
+        const bot = new Bot(env.BOT_API_KEY);
 
-    /*bot.on("message", async (ctx) => {
-      bot.api.sendMessage(1062529576, JSON.stringify(ctx))
-    })*/
+        bot.command("start", async (ctx) => {
+            await ctx.reply(messageBank.usageGuide);
+        });
 
-    bot.command("start", async (ctx) => {
-      await ctx.reply(messageBank.usageGuide);
-    });
-
-    bot.command("myid", async (ctx) => {
-      await ctx.reply(ctx.message.from.id)
-    })
-
-    bot.command("ask", async(ctx) => {
-      
-      const message = ctx.match ?? ""
-
-      // generate reply message
-      
-      // input valid, inform user that message will be sent soon
-      await ctx.reply(messageBank.llmProcessStart, {
-        reply_parameters: {message_id: ctx.msg.message_id}
-      })
-
-      // outputs markdown text
-      const response = await env.AI.run(defaultLLMModel, {
-        prompt: message
-      })
-
-      // convert markdown output into Telegram compatible one
-      let mdV2text = telegramifyMarkdown(response.response, "remove")
-
-      await ctx.reply(mdV2text, {
-          parse_mode: "MarkdownV2",
-          reply_parameters: {message_id: ctx.msg.message_id}
+        // this command was left for development purposes
+        bot.command("myid", async (ctx) => {
+            await ctx.reply(ctx.message.from.id)
         })
-    })
 
-    // reply was sent
+        bot.command("ask", async (ctx) => {
 
-    return webhookCallback(bot, "cloudflare-mod")(request);
-  },
+            const message = ctx.match ?? ""
+
+            // generate reply message
+
+            // input valid, inform user that message will be sent soon
+            await ctx.reply(messageBank.llmProcessStart, {
+                reply_parameters: { message_id: ctx.msg.message_id }
+            })
+
+            // outputs markdown text
+            const response = await env.AI.run(defaultLLMModel, {
+                prompt: message
+            })
+
+            // convert markdown output into Telegram compatible one
+            let mdV2text = telegramifyMarkdown(response.response, "remove")
+
+            await ctx.reply(mdV2text, {
+                parse_mode: "MarkdownV2",
+                reply_parameters: { message_id: ctx.msg.message_id }
+            })
+
+            // reply was sent
+        })
+
+        bot.on(":new_chat_members:me", async (ctx) => {
+            // bot is added to a group
+
+            // check if bot has already been in the group
+            if (chat.type != "group" && chat.type != "supergroup") return
+
+            let group = await Group.getGroupByID(ctx.chat.id);
+
+            if (group != null) {
+                // if yes - update the properties and finish
+                group.isEnabled = true;
+                group.lastMessageTime = new Date().getTime();
+                setGroupDefaultFlags(group)
+                let details = await ctx.api.getChat(group.ID)
+                if (details.linked_chat_id) {
+                    group.isAssociatedWithChannel = 1;
+                    group.associatedChannelID = details.linked_chat_id;
+                } else {
+                    group.isAssociatedWithChannel = 0;
+                    group.associatedChannelID = 0;
+                }
+                GroupModel.store(group, env, true);
+                return;
+            }
+
+
+            // bot wasn't in the group - create new entry
+            group = Group.create();
+            group.ID = ctx.chat.id;
+            group.lastMessageTime = new Date().getTime();
+            let details = await ctx.api.getChat(group.ID)
+            setGroupDefaultFlags(group)
+            if (details.linked_chat_id) {
+                group.isAssociatedWithChannel = 1;
+                group.associatedChannelID = details.linked_chat_id;
+            } else {
+                group.isAssociatedWithChannel = 0;
+                group.associatedChannelID = 0;
+            }
+            GroupModel.store(group, env);
+        })
+
+        bot.on(":left_chat_member:me", async (ctx) => {
+            // flip the flag, do not delete the entry
+            let group = await Group.getGroupByID(ctx.chat.id);
+            if (group == null) return;
+            group.hasLeft = true;
+            GroupModel.store(group, env);
+        })
+
+        return webhookCallback(bot, "cloudflare-mod")(request);
+    },
 };
+
+function setGroupDefaultFlags(group) {
+    group.numberOfFlags = 6
+    group.isEnabled = 1
+    group.hasLeft = 0
+    group.commandOrder = 1
+    group.isAssociatedWithChannel = 0
+    group.isAnonymChannelAnAdmin = 0
+}
