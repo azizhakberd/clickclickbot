@@ -17,7 +17,7 @@ export class GroupModel {
     }
 
     static fromQueryResult(result) {
-        return GroupModel(result.ID, result.Flags, result.SystemBehavior, result.LastMessageTime, result.AssociatedChannelID)
+        return new GroupModel(result.ID, result.Flags, result.SystemBehavior, result.LastMessageTime, result.AssociatedChannelID)
     }
 
 
