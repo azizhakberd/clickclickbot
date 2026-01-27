@@ -63,6 +63,15 @@ export default {
 
         })
 
+        bot.command("help", async (ctx) => {
+            if (ctx.message.chat.type === "private" || ctx.message.chat.type === "group" || ctx.message.chat.type === "supergroup") {
+                await ctx.reply(messageBank.helpGuide, {
+                    parse_mode: "HTML",
+                    reply_parameters: { message_id: ctx.msg.message_id }
+                })
+            }
+        })
+
         // group commands
 
         bot.command("teach", async (ctx) => {
@@ -430,7 +439,7 @@ async function getClearance(group, ctx, env) {
     }
     else {
         let clearance;
-        if (group.isAssociatedWithChannel && ctx.message.sender_chat?.id == group.associatedChannelID) {
+        if (group.isAssociatedWithChannel && ctx.message.sender_chat?.id == group.associatedChannelID || ctx.message.sender_chat?.id == ctx.chat.id) {
             if (group.isAnonymChannelAnAdmin) clearance = 1
             else clearance = 2
         } else {
