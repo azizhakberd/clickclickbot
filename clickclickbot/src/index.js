@@ -66,29 +66,16 @@ export default {
 
             if (group != null) {
                 // if yes - update the properties and finish
-                group.isEnabled = true;
+                group.hasLeft = 0;
                 group.lastMessageTime = new Date().getTime();
-
-                let details;
                 try {
-                    details = await ctx.api.getChat(group.ID)
+                    await retrieveAssociatedChannelData(group, ctx, env)
                 } catch (err) {
-                    if (err instanceof GrammyError) {
-                        if (err.error_code == 403) { // bot was kicked from chat
-                            group.hasLeft = 1;
-                            let result = await GroupModel.store(group, env, true);
-                            return;
-                        }
-                    }
+                    if (err instanceof GrammyError && err.error_code == 403)
+                        group.hasLeft = 1
                 }
-                if (details?.linked_chat_id) {
-                    group.isAssociatedWithChannel = 1;
-                    group.associatedChannelID = details.linked_chat_id;
-                } else {
-                    group.isAssociatedWithChannel = 0;
-                    group.associatedChannelID = 0;
-                }
-                let result = await GroupModel.store(group, env, true);
+
+                await GroupModel.store(group, env, true);
                 return;
             }
 
@@ -99,26 +86,13 @@ export default {
             group.lastMessageTime = new Date().getTime();
             setGroupDefaultFlags(group)
 
-            let details;
             try {
-                details = await ctx.api.getChat(group.ID)
+                await retrieveAssociatedChannelData(group, ctx, env)
             } catch (err) {
-                if (err instanceof GrammyError) {
-                    if (err.error_code == 403) { // bot was kicked from chat
-                        group.hasLeft = 1;
-                        let result = await GroupModel.store(group, env);
-                        return;
-                    }
-                }
+                if (err instanceof GrammyError && err.error_code == 403)
+                    group.hasLeft = 1
             }
-            if (details?.linked_chat_id) {
-                group.isAssociatedWithChannel = 1;
-                group.associatedChannelID = details.linked_chat_id;
-            } else {
-                group.isAssociatedWithChannel = 0;
-                group.associatedChannelID = 0;
-            }
-            let result = await GroupModel.store(group, env);
+            await GroupModel.store(group, env);
         })
 
         bot.on(":left_chat_member:me", async (ctx) => {
@@ -126,12 +100,24 @@ export default {
             let group = await Group.getGroupByID(ctx.chat.id, env);
             if (group == null) return;
             group.hasLeft = 1;
-            let result = await GroupModel.store(group, env, true);
+            await GroupModel.store(group, env, true);
         })
 
         return webhookCallback(bot, "cloudflare-mod")(request);
     },
 };
+
+async function retrieveAssociatedChannelData(group, ctx, env) {
+    let details = await ctx.api.getChat(group.ID)
+
+    if (details.linked_chat_id) {
+        group.isAssociatedWithChannel = 1;
+        group.associatedChannelID = details.linked_chat_id;
+    } else {
+        group.isAssociatedWithChannel = 0;
+        group.associatedChannelID = 0;
+    }
+}
 
 function setGroupDefaultFlags(group) {
     group.numberOfFlags = 6

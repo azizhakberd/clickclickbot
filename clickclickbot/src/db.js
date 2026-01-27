@@ -1,5 +1,5 @@
 export class GroupModel {
-    constructor(ID, flags, systemBehavior, lastMessageTime, associatedChannelID) {
+    constructor(ID = 0, flags = 0, systemBehavior = "", lastMessageTime = 0, associatedChannelID = 0) {
         this.ID = ID
         this.flags = flags
         this.systemBehavior = systemBehavior
