@@ -16,40 +16,44 @@ export default {
 
         bot.command("start", async (ctx) => {
             await ctx.reply(messageBank.usageGuide);
+            if (ctx.message.chat.type === "group" || ctx.message.chat.type === "supergroup") {
+                let group = await Group.getGroupByID(ctx.chat.id, env);
+                if (group != null) {
+                    group.lastMessageTime = new Date().getTime();
+                    await GroupModel.store(group, env, true);
+                }
+            }
         });
 
         // this command was left for development purposes
         bot.command("myid", async (ctx) => {
             await ctx.reply(ctx.message.from.id)
+            if (ctx.message.chat.type === "group" || ctx.message.chat.type === "supergroup") {
+                let group = await Group.getGroupByID(ctx.chat.id, env);
+                if (group != null) {
+                    group.lastMessageTime = new Date().getTime();
+                    await GroupModel.store(group, env, true);
+                }
+            }
         })
 
-        bot.command("ask", async (ctx) => {
+        bot.command("ask", async ctx => {
 
-            const message = ctx.match ?? ""
+            // identify chat where request is coming from
+            switch (ctx.message.chat.type) {
+                case "private":
+                    handleDMAsk(ctx, env)
+                    break;
+                case "group":
+                case "supergroup":
+                    handleGroupAsk(ctx, env)
+                    break;
+                default:
+                    break;
+            }
 
-            // generate reply message
 
-            // input valid, inform user that message will be sent soon
-            await ctx.reply(messageBank.llmProcessStart, {
-                reply_parameters: { message_id: ctx.msg.message_id }
-            })
-
-            // outputs markdown text
-            const response = await env.AI.run(defaultLLMModel, {
-                prompt: message
-            })
-
-            // convert markdown output into Telegram compatible one
-            let mdV2text = telegramifyMarkdown(response.response, "remove")
-
-            await ctx.reply(mdV2text, {
-                parse_mode: "MarkdownV2",
-                reply_parameters: { message_id: ctx.msg.message_id }
-            })
-
-            // reply was sent
         })
-
 
         // For development purposes: flush all unserved API messages
         // bot.on("message", async (ctx) => {
@@ -106,6 +110,85 @@ export default {
         return webhookCallback(bot, "cloudflare-mod")(request);
     },
 };
+
+async function generateLLMResponse(prompt, ctx, env, group = null, systemRole = "") {
+    await ctx.reply(messageBank.llmProcessStart, {
+        reply_parameters: { message_id: ctx.msg.message_id }
+    })
+
+    // Build the messages array with system role if provided
+    let messages = [];
+    if (systemRole) {
+        messages.push({ role: "system", content: systemRole });
+    }
+    messages.push({ role: "user", content: prompt });
+
+    // outputs markdown text
+    const response = await env.AI.run(defaultLLMModel, {
+        messages: messages
+    })
+
+    // convert markdown output into Telegram compatible one
+    let mdV2text = telegramifyMarkdown(response.response, "remove")
+
+    const result = await ctx.reply(mdV2text, {
+        parse_mode: "MarkdownV2",
+        reply_parameters: { message_id: ctx.msg.message_id }
+    })
+
+    // Update lastMessageTime for group chats
+    if (group != null) {
+        group.lastMessageTime = new Date().getTime();
+        await GroupModel.store(group, env, true);
+    }
+
+    return result
+}
+
+async function handleDMAsk(ctx, env) {
+    let prompt;
+
+    if (ctx.message.reply_to_message?.text)
+        if (ctx.message.reply_to_message.from.id == env.BOT_SELF_ID)
+            prompt = `You said "${ctx.message.reply_to_message}"\n${ctx.match ?? ""}`
+        else
+            prompt = `I said "${ctx.message.reply_to_message}"\n${ctx.match ?? ""}`
+    else
+        prompt = ctx.match ?? ""
+
+    await generateLLMResponse(prompt, ctx, env)
+}
+
+async function handleGroupAsk(ctx, env) {
+    // Check if bot is in the group and enabled
+    let group = await Group.getGroupByID(ctx.chat.id, env);
+    
+    if (group == null) {
+        return;
+    }
+    
+    if (group.hasLeft) {
+        // Flip the hasLeft flag back to 0
+        group.hasLeft = 0;
+        group.lastMessageTime = new Date().getTime();
+    }
+    
+    if (!group.isEnabled) {
+        return;
+    }
+
+    let prompt;
+
+    if (ctx.message.reply_to_message?.text)
+        if (ctx.message.reply_to_message.from.id == env.BOT_SELF_ID)
+            prompt = `You said "${ctx.message.reply_to_message.text}"\n${ctx.match ?? ""}`
+        else
+            prompt = `Someone said "${ctx.message.reply_to_message.text}"\n${ctx.match ?? ""}`
+    else
+        prompt = ctx.match ?? ""
+
+    await generateLLMResponse(prompt, ctx, env, group, group.systemBehavior)
+}
 
 async function retrieveAssociatedChannelData(group, ctx, env) {
     let details = await ctx.api.getChat(group.ID)
