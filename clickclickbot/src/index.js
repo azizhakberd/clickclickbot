@@ -542,7 +542,7 @@ async function handleGroupAsk(ctx, env) {
 
     let prompt;
 
-    if (ctx.message.reply_to_message?.text) {
+    if (ctx.match && ctx.message.reply_to_message?.text) {
         if (ctx.message.reply_to_message.from.id == env.BOT_SELF_ID)
             prompt = `You said "${ctx.message.reply_to_message.text}"\n${ctx.match ?? ""}`
         else
